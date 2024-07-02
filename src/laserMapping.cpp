@@ -543,6 +543,8 @@ void publish_path(const ros::Publisher pubPath)
     }
 }
 
+vector<double> init_P;
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "laserMapping");
@@ -578,6 +580,7 @@ int main(int argc, char **argv)
     nh.param<bool>("mapping/extrinsic_est_en", extrinsic_est_en, true);
     nh.param<bool>("pcd_save/pcd_save_en", pcd_save_en, false); // 是否将点云地图保存到PCD文件
     nh.param<int>("pcd_save/interval", pcd_save_interval, -1);
+    nh.param<vector<double>>("cov/init_P", init_P, vector<double>(9));
     nh.param<vector<double>>("mapping/extrinsic_T", extrinT, vector<double>()); // 雷达相对于IMU的外参T（即雷达在IMU坐标系中的坐标）
     nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>()); // 雷达相对于IMU的外参R
 
@@ -613,6 +616,12 @@ int main(int argc, char **argv)
     out_p.open(string(ROOT_DIR) + "cov.txt", std::ios::out);
     out_imu.open(string(ROOT_DIR) + "imu.txt", std::ios::out);
 
+    Matrix<double, 27, 27> init_P_mat = Matrix<double, 27, 27>::Zero();
+    for (int i = 0; i < 27; i++)
+    {
+        init_P_mat(i, i) = init_P[i/3];
+    }
+
     while (ros::ok())
     {
         if (flg_exit)
@@ -631,7 +640,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            p_imu1->Process(Measures, kf, feats_undistort);
+            p_imu1->Process(Measures, kf, feats_undistort, init_P_mat);
 
             //如果feats_undistort为空 ROS_WARN
             if (feats_undistort->empty() || (feats_undistort == NULL))

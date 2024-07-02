@@ -606,7 +606,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            p_imu1->Process(Measures, kf, feats_undistort);
+            p_imu1->Process(Measures, kf, feats_undistort, Matrix<double, 27, 27>());
 
             //如果feats_undistort为空 ROS_WARN
             if (feats_undistort->empty() || (feats_undistort == NULL))

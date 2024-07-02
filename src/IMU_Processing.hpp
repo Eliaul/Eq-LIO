@@ -45,7 +45,7 @@ class ImuProcess
   void Reset();
   void set_param(const V3D &transl, const M3D &rot, const V3D &gyr, const V3D &acc, const V3D &gyr_bias, const V3D &acc_bias);
   Eigen::Matrix<double, 12, 12> Q;    //噪声协方差矩阵  对应论文式(8)中的Q
-  void Process(const MeasureGroup &meas, esekfom::esekf &kf_state, PointCloudXYZI::Ptr &pcl_un_);
+  void Process(const MeasureGroup &meas, esekfom::esekf &kf_state, PointCloudXYZI::Ptr &pcl_un_, Matrix<double, 27, 27>& init_P);
 
   V3D cov_acc;             //加速度协方差
   V3D cov_gyr;             //角速度协方差
@@ -56,7 +56,7 @@ class ImuProcess
   double first_lidar_time; //当前帧第一个点云时间
 
  private:
-  void IMU_init(const MeasureGroup &meas, esekfom::esekf &kf_state, int &N);
+  void IMU_init(const MeasureGroup &meas, esekfom::esekf &kf_state, int &N, Matrix<double, 27, 27>& init_P);
   void UndistortPcl(const MeasureGroup &meas, esekfom::esekf &kf_state, PointCloudXYZI &pcl_in_out);
 
   PointCloudXYZI::Ptr cur_pcl_un_;        //当前帧点云未去畸变
@@ -121,7 +121,7 @@ void ImuProcess::set_param(const V3D &transl, const M3D &rot, const V3D &gyr, co
 
 
 //IMU初始化：利用开始的IMU帧的平均值初始化状态量x
-void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf &kf_state, int &N)
+void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf &kf_state, int &N, Matrix<double, 27, 27>& init_P)
 {
   //MeasureGroup这个struct表示当前过程中正在处理的所有数据，包含IMU队列和一帧lidar的点云 以及lidar的起始和结束时间
   //初始化重力、陀螺仪偏差、acc和陀螺仪协方差  将加速度测量值归一化为单位重力   **/
@@ -163,13 +163,13 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf &kf_state, in
   init_state.offset_R_L_I = Sophus::SO3(Lidar_R_wrt_IMU);
   kf_state.change_x(init_state);      //将初始化后的状态传入esekfom.hpp中的x_
 
-  Matrix<double, 27, 27> init_P = MatrixXd::Identity(27,27);      //在esekfom.hpp获得P_的协方差矩阵
-  init_P(6,6) = init_P(7,7) = init_P(8,8) = 0.00001;
-  init_P(9,9) = init_P(10,10) = init_P(11,11) = 0.00001;
-  init_P(15,15) = init_P(16,16) = init_P(17,17) = 0.0001;
-  init_P(18,18) = init_P(19,19) = init_P(20,20) = 0.001;
-  init_P(21,21) = init_P(22,22) = init_P(23,23) = 0.00001; 
-  init_P(24,24) = init_P(25,25) = init_P(26,26) = 0; 
+  // Matrix<double, 27, 27> init_P = MatrixXd::Identity(27,27);      //在esekfom.hpp获得P_的协方差矩阵
+  // init_P(6,6) = init_P(7,7) = init_P(8,8) = 0.00001;
+  // init_P(9,9) = init_P(10,10) = init_P(11,11) = 0.00001;
+  // init_P(15,15) = init_P(16,16) = init_P(17,17) = 0.0001;
+  // init_P(18,18) = init_P(19,19) = init_P(20,20) = 0.001;
+  // init_P(21,21) = init_P(22,22) = init_P(23,23) = 0.00001; 
+  // init_P(24,24) = init_P(25,25) = init_P(26,26) = bv_cov; 
   kf_state.change_P(init_P);
   last_imu_ = meas.imu.back();
 
@@ -303,7 +303,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf &kf_state
 
 
 double T1,T2;
-void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf &kf_state, PointCloudXYZI::Ptr &cur_pcl_un_)
+void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf &kf_state, PointCloudXYZI::Ptr &cur_pcl_un_, Matrix<double, 27, 27>& init_P)
 {
   // T1 = omp_get_wtime();
 
@@ -313,7 +313,7 @@ void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf &kf_state, Poi
   if (imu_need_init_)   
   {
     // The very first lidar frame
-    IMU_init(meas, kf_state, init_iter_num);  //如果开头几帧  需要初始化IMU参数
+    IMU_init(meas, kf_state, init_iter_num, init_P);  //如果开头几帧  需要初始化IMU参数
 
     imu_need_init_ = true;
     
