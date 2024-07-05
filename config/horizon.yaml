@@ -18,7 +18,7 @@ mapping:
     fov_degree:    100
     det_range:     260.0
     extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic
-    extrinsic_T: [ 0.05512, 0.02226, -0.0297 ]
+    extrinsic_T: [ -0.0265, 0.0202, 0.05309 ]
     extrinsic_R: [ 1, 0, 0,
                    0, 1, 0,
                    0, 0, 1]
@@ -33,3 +33,8 @@ pcd_save:
     pcd_save_en: false
     interval: -1                 # how many LiDAR frames saved in each pcd file; 
                                  # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
+
+cov:
+    #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力、虚拟零偏
+    init_P: [100, 10, 0.00001, 0.00001, 1, 0.0001, 0.00001, 0.001, 0.00001] 
+    # init_P: [1, 1, 0.00001, 0.00001, 0.01, 0.0001, 0.001, 0.001, 0.00001] 
