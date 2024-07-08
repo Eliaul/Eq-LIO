@@ -79,7 +79,8 @@ M3D Lidar_R_wrt_IMU(Eye3d);
 /*** EKF inputs and output ***/
 MeasureGroup Measures;
 
-esekfom::esekf kf;
+esekfom::esekf<24> kf;
+esekfom::esekf<27> kf_ex;
 
 state_ikfom state_point;
 Eigen::Vector3d pos_lid; //估计的W系下的位置
@@ -493,7 +494,7 @@ void set_posestamp(T &out)
     out.pose.orientation.w = q_.coeffs()[3];
 }
 
-void publish_odometry(const ros::Publisher &pubOdomAftMapped)
+void publish_odometry(const ros::Publisher &pubOdomAftMapped, bool is_extend)
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
@@ -501,16 +502,33 @@ void publish_odometry(const ros::Publisher &pubOdomAftMapped)
     set_posestamp(odomAftMapped.pose);
     pubOdomAftMapped.publish(odomAftMapped);
 
-    auto P = kf.get_P();
-    for (int i = 0; i < 6; i++)
+    if (is_extend)
     {
-        int k = i < 3 ? i + 3 : i - 3;
-        odomAftMapped.pose.covariance[i * 6 + 0] = P(k, 3);
-        odomAftMapped.pose.covariance[i * 6 + 1] = P(k, 4);
-        odomAftMapped.pose.covariance[i * 6 + 2] = P(k, 5);
-        odomAftMapped.pose.covariance[i * 6 + 3] = P(k, 0);
-        odomAftMapped.pose.covariance[i * 6 + 4] = P(k, 1);
-        odomAftMapped.pose.covariance[i * 6 + 5] = P(k, 2);
+        auto P = kf_ex.get_P();
+        for (int i = 0; i < 6; i++)
+        {
+            int k = i < 3 ? i + 3 : i - 3;
+            odomAftMapped.pose.covariance[i * 6 + 0] = P(k, 3);
+            odomAftMapped.pose.covariance[i * 6 + 1] = P(k, 4);
+            odomAftMapped.pose.covariance[i * 6 + 2] = P(k, 5);
+            odomAftMapped.pose.covariance[i * 6 + 3] = P(k, 0);
+            odomAftMapped.pose.covariance[i * 6 + 4] = P(k, 1);
+            odomAftMapped.pose.covariance[i * 6 + 5] = P(k, 2);
+        }
+    }
+    else
+    {
+        auto P = kf.get_P();
+        for (int i = 0; i < 6; i++)
+        {
+            int k = i < 3 ? i + 3 : i - 3;
+            odomAftMapped.pose.covariance[i * 6 + 0] = P(k, 3);
+            odomAftMapped.pose.covariance[i * 6 + 1] = P(k, 4);
+            odomAftMapped.pose.covariance[i * 6 + 2] = P(k, 5);
+            odomAftMapped.pose.covariance[i * 6 + 3] = P(k, 0);
+            odomAftMapped.pose.covariance[i * 6 + 4] = P(k, 1);
+            odomAftMapped.pose.covariance[i * 6 + 5] = P(k, 2);
+        }
     }
 
     static tf::TransformBroadcaster br;
@@ -544,6 +562,7 @@ void publish_path(const ros::Publisher pubPath)
 }
 
 vector<double> init_P;
+bool is_extended;
 
 int main(int argc, char **argv)
 {
@@ -581,6 +600,7 @@ int main(int argc, char **argv)
     nh.param<bool>("pcd_save/pcd_save_en", pcd_save_en, false); // 是否将点云地图保存到PCD文件
     nh.param<int>("pcd_save/interval", pcd_save_interval, -1);
     nh.param<vector<double>>("cov/init_P", init_P, vector<double>(9));
+    nh.param<bool>("others/is_extended", is_extended, false);
     nh.param<vector<double>>("mapping/extrinsic_T", extrinT, vector<double>()); // 雷达相对于IMU的外参T（即雷达在IMU坐标系中的坐标）
     nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>()); // 雷达相对于IMU的外参R
 
@@ -616,11 +636,17 @@ int main(int argc, char **argv)
     out_p.open(string(ROOT_DIR) + "cov.txt", std::ios::out);
     out_imu.open(string(ROOT_DIR) + "imu.txt", std::ios::out);
 
-    Matrix<double, 27, 27> init_P_mat = Matrix<double, 27, 27>::Zero();
+    Matrix<double, 27, 27> init_P_mat_ex = Matrix<double, 27, 27>::Zero();
     for (int i = 0; i < 27; i++)
+    {
+        init_P_mat_ex(i, i) = init_P[i/3];
+    }
+    Matrix<double, 24, 24> init_P_mat = Matrix<double, 24, 24>::Zero();
+    for (int i = 0; i < 24; i++)
     {
         init_P_mat(i, i) = init_P[i/3];
     }
+
 
     while (ros::ok())
     {
@@ -640,7 +666,15 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            p_imu1->Process(Measures, kf, feats_undistort, init_P_mat);
+            if (is_extended)
+            {
+                p_imu1->Process(Measures, kf_ex, feats_undistort, init_P_mat_ex);
+            }
+            else
+            {
+                p_imu1->Process(Measures, kf, feats_undistort, init_P_mat);
+            }
+            
 
             //如果feats_undistort为空 ROS_WARN
             if (feats_undistort->empty() || (feats_undistort == NULL))
@@ -649,14 +683,28 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            state_point = kf.get_x();
-            pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+            if (is_extended)
+            {
+                state_point = kf_ex.get_x();
+                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
 
-            out_f << Measures.lidar_beg_time - first_lidar_time << " " << state_point.rot.log().transpose() * 180.0 / PI_M << " "
-            << state_point.pos.transpose() << " " << state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M << " "
-            << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose() << " "
-            << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav.transpose() <<
-            " " << state_point.bv.transpose() << endl;
+                out_f << Measures.lidar_beg_time - first_lidar_time << " " << state_point.rot.log().transpose() * 180.0 / PI_M << " "
+                << state_point.pos.transpose() << " " << state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M << " "
+                << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose() << " "
+                << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav.transpose() <<
+                " " << state_point.bv.transpose() << endl;
+            }
+            else
+            {
+                state_point = kf.get_x();
+                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+
+                out_f << Measures.lidar_beg_time - first_lidar_time << " " << state_point.rot.log().transpose() * 180.0 / PI_M << " "
+                << state_point.pos.transpose() << " " << state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M << " "
+                << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose() << " "
+                << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav.transpose() <<
+                " " << state_point.bv.transpose() << endl;
+            }
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
 
@@ -698,13 +746,21 @@ int main(int argc, char **argv)
 
             /*** iterated state estimation ***/
             Nearest_Points.resize(feats_down_size); //存储近邻点的vector
-            kf.update_iterated_dyn_share_modified(LASER_POINT_COV, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en);
-
-            state_point = kf.get_x();
-            pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
-
+            if(is_extended)
+            {
+                kf_ex.update_iterated_dyn_share_modified(LASER_POINT_COV, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en);
+                state_point = kf_ex.get_x();
+                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+            }
+            else
+            {
+                kf.update_iterated_dyn_share_modified(LASER_POINT_COV, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en); 
+                state_point = kf.get_x();
+                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+            }
+            
             /******* Publish odometry *******/
-            publish_odometry(pubOdomAftMapped);
+            publish_odometry(pubOdomAftMapped, is_extended);
 
             /*** add the feature points to map kdtree ***/
             feats_down_world->resize(feats_down_size);

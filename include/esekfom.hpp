@@ -33,11 +33,12 @@ namespace esekfom
 		Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> h_x; //雅可比矩阵H (公式(14)中的H)
 	};
 
+	template<int _Dim>
 	class esekf
 	{
 	public:
-		typedef Matrix<double, 27, 27> cov;				// 24X24的协方差矩阵
-		typedef Matrix<double, 27, 1> vectorized_state; // 24X1的向量
+		typedef Matrix<double, _Dim, _Dim> cov;				// 24X24的协方差矩阵
+		typedef Matrix<double, _Dim, 1> vectorized_state; // 24X1的向量
 
 		esekf(){};
 		~esekf(){};
@@ -63,31 +64,34 @@ namespace esekfom
 		}
 
 		//广义加法  公式(4)
-		state_ikfom boxplus(state_ikfom x, Eigen::Matrix<double, 27, 1> f_)
+		state_ikfom boxplus(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_)
 		{
 			state_ikfom x_r;
-			x_r.pos = x.pos + f_.block<3, 1>(0, 0);
+			x_r.pos = x.pos + f_.template block<3, 1>(0, 0);
 
-			x_r.rot = x.rot * Sophus::SO3::exp(f_.block<3, 1>(3, 0));
-			x_r.offset_R_L_I = x.offset_R_L_I * Sophus::SO3::exp(f_.block<3, 1>(6, 0));
+			x_r.rot = x.rot * Sophus::SO3::exp(f_.template block<3, 1>(3, 0));
+			x_r.offset_R_L_I = x.offset_R_L_I * Sophus::SO3::exp(f_.template block<3, 1>(6, 0));
 
-			x_r.offset_T_L_I = x.offset_T_L_I + f_.block<3, 1>(9, 0);
-			x_r.vel = x.vel + f_.block<3, 1>(12, 0);
-			x_r.bg = x.bg + f_.block<3, 1>(15, 0);
-			x_r.ba = x.ba + f_.block<3, 1>(18, 0);
-			x_r.grav = x.grav + f_.block<3, 1>(21, 0);
+			x_r.offset_T_L_I = x.offset_T_L_I + f_.template block<3, 1>(9, 0);
+			x_r.vel = x.vel + f_.template block<3, 1>(12, 0);
+			x_r.bg = x.bg + f_.template block<3, 1>(15, 0);
+			x_r.ba = x.ba + f_.template block<3, 1>(18, 0);
+			x_r.grav = x.grav + f_.template block<3, 1>(21, 0);
 
-			x_r.bv = x.bv + f_.block<3, 1>(24, 0);
+			if (_Dim == 27)
+			{
+				x_r.bv = x.bv + f_.template block<3, 1>(24, 0);
+			}
 			return x_r;
 		}
 
-		state_ikfom compensate(state_ikfom x, Eigen::Matrix<double, 27, 1> f_)
+		state_ikfom compensate(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_)
 		{
 			state_ikfom x_r;
-			Sophus::SO3 rot_error = Sophus::SO3::exp(f_.block<3, 1>(3, 0));
+			Sophus::SO3 rot_error = Sophus::SO3::exp(f_.template block<3, 1>(3, 0));
 			x_r.rot = rot_error * x.rot;
-			x_r.pos = f_.block<3, 1>(0, 0) + rot_error * x.pos;
-			x_r.vel = f_.block<3, 1>(12, 0) + rot_error * x.vel;
+			x_r.pos = f_.template block<3, 1>(0, 0) + rot_error * x.pos;
+			x_r.vel = f_.template block<3, 1>(12, 0) + rot_error * x.vel;
 
 			// Sophus::SO3 offset_R_error = Sophus::SO3::exp(f_.block<3, 1>(6, 0));
 			// x_r.offset_R_L_I = x.rot.inverse() * offset_R_error * x.rot * x.offset_R_L_I;
@@ -100,10 +104,11 @@ namespace esekfom
 			x_r.offset_T_L_I = x.offset_T_L_I;
 			//x_r.offset_T_L_I = x.offset_T_L_I + f_.block<3, 1>(9, 0);
 
-			x_r.bg = x.bg + x.rot.matrix().transpose() * f_.block<3, 1>(15, 0);
-			x_r.ba = x.ba + x.rot.matrix().transpose() * f_.block<3, 1>(18, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.vel) * f_.block<3, 1>(15, 0);
-			x_r.bv = x.bv + x.rot.matrix().transpose() * f_.block<3, 1>(24, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.pos) * f_.block<3, 1>(15, 0);
-			x_r.grav = x.grav + f_.block<3, 1>(21, 0);
+			x_r.bg = x.bg + x.rot.matrix().transpose() * f_.template block<3, 1>(15, 0);
+			x_r.ba = x.ba + x.rot.matrix().transpose() * f_.template block<3, 1>(18, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.vel) * f_.template block<3, 1>(15, 0);
+			if (_Dim == 27)
+				x_r.bv = x.bv + x.rot.matrix().transpose() * f_.template block<3, 1>(24, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.pos) * f_.template block<3, 1>(15, 0);
+			x_r.grav = x.grav + f_.template block<3, 1>(21, 0);
 
 			return x_r;
 		}
@@ -111,13 +116,13 @@ namespace esekfom
 		//前向传播  公式(4-8)
 		void predict(double &dt, Eigen::Matrix<double, 12, 12> &Q, const input_ikfom &i_in)
 		{
-			Eigen::Matrix<double, 27, 1> f_ = get_f(x_, i_in);	  //公式(3)的f
-			Eigen::Matrix<double, 27, 27> f_x_ = df_dx(x_, i_in); //公式(7)的df/dx
-			Eigen::Matrix<double, 27, 12> f_w_ = df_dw(x_, i_in); //公式(7)的df/dw
+			Eigen::Matrix<double, _Dim, 1> f_ = get_f<_Dim>(x_, i_in);	  //公式(3)的f
+			Eigen::Matrix<double, _Dim, _Dim> f_x_ = df_dx<_Dim>(x_, i_in); //公式(7)的df/dx
+			Eigen::Matrix<double, _Dim, 12> f_w_ = df_dw<_Dim>(x_, i_in); //公式(7)的df/dw
 
 			x_ = boxplus(x_, f_ * dt); //前向传播 公式(4)
 
-			f_x_ = Matrix<double, 27, 27>::Identity() + f_x_ * dt; //之前Fx矩阵里的项没加单位阵，没乘dt   这里补上
+			f_x_ = Matrix<double, _Dim, _Dim>::Identity() + f_x_ * dt; //之前Fx矩阵里的项没加单位阵，没乘dt   这里补上
 
 			P_ = (f_x_)*P_ * (f_x_).transpose() + (dt * f_w_) * Q * (dt * f_w_).transpose(); //传播协方差矩阵，即公式(8)
 		}
@@ -244,32 +249,33 @@ namespace esekfom
 		//广义减法
 		vectorized_state boxminus(state_ikfom x1, state_ikfom x2)
 		{
-			Matrix<double, 27, 1> x_r = Matrix<double, 27, 1>::Zero();
+			Matrix<double, _Dim, 1> x_r = Matrix<double, _Dim, 1>::Zero();
 
 			Matrix3d rot_err = x1.rot.matrix() * x2.rot.matrix().transpose();
 
-			x_r.block<3, 1>(0, 0) = x1.pos - rot_err * x2.pos;
+			x_r.template block<3, 1>(0, 0) = x1.pos - rot_err * x2.pos;
 
-			x_r.block<3, 1>(3, 0) = Sophus::SO3(rot_err).log();
+			x_r.template block<3, 1>(3, 0) = Sophus::SO3(rot_err).log();
 
 			Matrix3d tmp = x2.rot.matrix() * x1.offset_R_L_I.matrix() * x2.offset_R_L_I.matrix().transpose() * x2.rot.matrix().transpose();
 			// x_r.block<3, 1>(6, 0) = Sophus::SO3(tmp).log();
 
 			// x_r.block<3, 1>(9, 0) = (Matrix3d::Identity() - tmp) * x2.pos + x2.rot * x1.offset_T_L_I - tmp * x2.rot.matrix() * x2.offset_T_L_I;
 
-			x_r.block<3, 1>(6, 0) = Sophus::SO3(x2.offset_R_L_I.matrix().transpose() * x1.offset_R_L_I.matrix()).log();
+			x_r.template block<3, 1>(6, 0) = Sophus::SO3(x2.offset_R_L_I.matrix().transpose() * x1.offset_R_L_I.matrix()).log();
 
-			x_r.block<3, 1>(9, 0) = x1.offset_T_L_I - x2.offset_T_L_I;
+			x_r.template block<3, 1>(9, 0) = x1.offset_T_L_I - x2.offset_T_L_I;
 
-			x_r.block<3, 1>(12, 0) = x1.vel - rot_err * x2.vel;
+			x_r.template block<3, 1>(12, 0) = x1.vel - rot_err * x2.vel;
 
-			x_r.block<3, 1>(15, 0) = x2.rot * (x1.bg - x2.bg);
+			x_r.template block<3, 1>(15, 0) = x2.rot * (x1.bg - x2.bg);
 
-			x_r.block<3, 1>(18, 0) = x2.rot * (x1.ba - x2.ba) + Sophus::SO3::hat(x2.vel) * x_r.block<3, 1>(15, 0);
+			x_r.template block<3, 1>(18, 0) = x2.rot * (x1.ba - x2.ba) + Sophus::SO3::hat(x2.vel) * x_r.template block<3, 1>(15, 0);
 
-			x_r.block<3, 1>(21, 0) = x1.grav - x2.grav;
+			x_r.template block<3, 1>(21, 0) = x1.grav - x2.grav;
 
-			x_r.block<3, 1>(24, 0) = x2.rot * (x1.bv - x2.bv) + Sophus::SO3::hat(x2.pos) * x_r.block<3, 1>(15, 0);
+			if (_Dim == 27)
+				x_r.template block<3, 1>(24, 0) = x2.rot * (x1.bv - x2.bv) + Sophus::SO3::hat(x2.pos) * x_r.template block<3, 1>(15, 0);
 
 			return x_r;
 		}
@@ -305,21 +311,21 @@ namespace esekfom
 
 				//由于H矩阵是稀疏的，只有前12列有非零元素，后12列是零 因此这里采用分块矩阵的形式计算 减少计算量
 				auto H = dyn_share.h_x;												// m X 12 的矩阵
-				Eigen::Matrix<double, 27, 27> HTH = Matrix<double, 27, 27>::Zero(); //矩阵 H^T * H
-				HTH.block<12, 12>(0, 0) = H.transpose() * H;
+				Eigen::Matrix<double, _Dim, _Dim> HTH = Matrix<double, _Dim, _Dim>::Zero(); //矩阵 H^T * H
+				HTH.template block<12, 12>(0, 0) = H.transpose() * H;
 
 				auto K_front = (HTH / R + P_.inverse()).inverse();
 				Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> K;
-				K = K_front.block<27, 12>(0, 0) * H.transpose() / R; //卡尔曼增益  这里R视为常数
+				K = K_front.template block<_Dim, 12>(0, 0) * H.transpose() / R; //卡尔曼增益  这里R视为常数
 
-				Eigen::Matrix<double, 27, 27> KH = Matrix<double, 27, 27>::Zero(); //矩阵 K * H
-				KH.block<27, 12>(0, 0) = K * H;
-				Matrix<double, 27, 1> dx_ = K * dyn_share.h + (KH - Matrix<double, 27, 27>::Identity()) * dx_new; //公式(18)
+				Eigen::Matrix<double, _Dim, _Dim> KH = Matrix<double, _Dim, _Dim>::Zero(); //矩阵 K * H
+				KH.template block<_Dim, 12>(0, 0) = K * H;
+				Matrix<double, _Dim, 1> dx_ = K * dyn_share.h + (KH - Matrix<double, _Dim, _Dim>::Identity()) * dx_new; //公式(18)
 				// std::cout << "dx_: " << dx_.transpose() << std::endl;
 				x_ = compensate(x_, dx_); //公式(18)
 
 				dyn_share.converge = true;
-				for (int j = 0; j < 27; j++)
+				for (int j = 0; j < _Dim; j++)
 				{
 					if (std::fabs(dx_[j]) > epsi) //如果dx>epsi 认为没有收敛
 					{
@@ -338,7 +344,7 @@ namespace esekfom
 
 				if (t > 1 || i == maximum_iter - 1)
 				{
-					P_ = (Matrix<double, 27, 27>::Identity() - KH) * P_; //公式(19)
+					P_ = (Matrix<double, _Dim, _Dim>::Identity() - KH) * P_; //公式(19)
 					return;
 				}
 			}
