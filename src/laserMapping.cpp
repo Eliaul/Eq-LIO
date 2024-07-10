@@ -687,23 +687,87 @@ int main(int argc, char **argv)
             {
                 state_point = kf_ex.get_x();
                 pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
-
-                out_f << Measures.lidar_beg_time - first_lidar_time << " " << state_point.rot.log().transpose() * 180.0 / PI_M << " "
-                << state_point.pos.transpose() << " " << state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M << " "
-                << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose() << " "
-                << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav.transpose() <<
-                " " << state_point.bv.transpose() << endl;
+                auto rot = (state_point.rot.log().transpose() * 180.0 / PI_M).eval();
+                auto pos = state_point.pos.transpose().eval();
+                auto offset_rot = (state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M).eval();
+                auto offset = state_point.offset_T_L_I.transpose().eval();
+                auto vel = state_point.vel.transpose().eval();
+                auto bg = state_point.bg.transpose().eval();
+                auto ba = state_point.ba.transpose().eval();
+                auto bv = state_point.bv.transpose().eval();
+                auto grav = state_point.grav.transpose().eval();
+                out_f << fixed << setprecision(3) << setw(10) << Measures.lidar_beg_time - first_lidar_time 
+                      << fixed << setprecision(6) << setw(13) << rot[0]
+                      << fixed << setprecision(6) << setw(13) << rot[1]
+                      << fixed << setprecision(6) << setw(13) << rot[2]
+                      << fixed << setprecision(6) << setw(15) << pos[0]
+                      << fixed << setprecision(6) << setw(15) << pos[1]
+                      << fixed << setprecision(6) << setw(15) << pos[2]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[0]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[1]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[2]
+                      << fixed << setprecision(6) << setw(10) << offset[0]
+                      << fixed << setprecision(6) << setw(10) << offset[1]
+                      << fixed << setprecision(6) << setw(10) << offset[2]
+                      << fixed << setprecision(6) << setw(13) << vel[0]
+                      << fixed << setprecision(6) << setw(13) << vel[1]
+                      << fixed << setprecision(6) << setw(13) << vel[2]
+                      << fixed << setprecision(6) << setw(13) << bg[0]
+                      << fixed << setprecision(6) << setw(13) << bg[1]
+                      << fixed << setprecision(6) << setw(13) << bg[2]
+                      << fixed << setprecision(6) << setw(13) << ba[0]
+                      << fixed << setprecision(6) << setw(13) << ba[1]
+                      << fixed << setprecision(6) << setw(13) << ba[2]
+                      << fixed << setprecision(6) << setw(12) << grav[0]
+                      << fixed << setprecision(6) << setw(12) << grav[1]
+                      << fixed << setprecision(6) << setw(12) << grav[2]
+                      << fixed << setprecision(6) << setw(13) << bv[0]
+                      << fixed << setprecision(6) << setw(13) << bv[1]
+                      << fixed << setprecision(6) << setw(13) << bv[2]
+                      << endl;
             }
             else
             {
                 state_point = kf.get_x();
                 pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
-
-                out_f << Measures.lidar_beg_time - first_lidar_time << " " << state_point.rot.log().transpose() * 180.0 / PI_M << " "
-                << state_point.pos.transpose() << " " << state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M << " "
-                << state_point.offset_T_L_I.transpose() << " " << state_point.vel.transpose() << " "
-                << state_point.bg.transpose() << " " << state_point.ba.transpose() << " " << state_point.grav.transpose() <<
-                " " << state_point.bv.transpose() << endl;
+                auto rot = (state_point.rot.log().transpose() * 180.0 / PI_M).eval();
+                auto pos = state_point.pos.transpose().eval();
+                auto offset_rot = (state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M).eval();
+                auto offset = state_point.offset_T_L_I.transpose().eval();
+                auto vel = state_point.vel.transpose().eval();
+                auto bg = state_point.bg.transpose().eval();
+                auto ba = state_point.ba.transpose().eval();
+                auto bv = state_point.bv.transpose().eval();
+                auto grav = state_point.grav.transpose().eval();
+                out_f << fixed << setprecision(3) << setw(10) << Measures.lidar_beg_time
+                      << fixed << setprecision(6) << setw(13) << rot[0]
+                      << fixed << setprecision(6) << setw(13) << rot[1]
+                      << fixed << setprecision(6) << setw(13) << rot[2]
+                      << fixed << setprecision(6) << setw(15) << pos[0]
+                      << fixed << setprecision(6) << setw(15) << pos[1]
+                      << fixed << setprecision(6) << setw(15) << pos[2]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[0]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[1]
+                      << fixed << setprecision(6) << setw(13) << offset_rot[2]
+                      << fixed << setprecision(6) << setw(10) << offset[0]
+                      << fixed << setprecision(6) << setw(10) << offset[1]
+                      << fixed << setprecision(6) << setw(10) << offset[2]
+                      << fixed << setprecision(6) << setw(13) << vel[0]
+                      << fixed << setprecision(6) << setw(13) << vel[1]
+                      << fixed << setprecision(6) << setw(13) << vel[2]
+                      << fixed << setprecision(6) << setw(13) << bg[0]
+                      << fixed << setprecision(6) << setw(13) << bg[1]
+                      << fixed << setprecision(6) << setw(13) << bg[2]
+                      << fixed << setprecision(6) << setw(13) << ba[0]
+                      << fixed << setprecision(6) << setw(13) << ba[1]
+                      << fixed << setprecision(6) << setw(13) << ba[2]
+                      << fixed << setprecision(6) << setw(12) << grav[0]
+                      << fixed << setprecision(6) << setw(12) << grav[1]
+                      << fixed << setprecision(6) << setw(12) << grav[2]
+                      << fixed << setprecision(6) << setw(13) << bv[0]
+                      << fixed << setprecision(6) << setw(13) << bv[1]
+                      << fixed << setprecision(6) << setw(13) << bv[2]
+                      << endl;
             }
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;

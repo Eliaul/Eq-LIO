@@ -13,10 +13,14 @@ preprocess:
     blind: 2
 
 mapping:
-    acc_cov: 0.1
-    gyr_cov: 0.1
-    b_acc_cov: 0.0001
-    b_gyr_cov: 0.0001
+    # acc_cov: 0.1
+    # gyr_cov: 0.1
+    # b_acc_cov: 0.0001
+    # b_gyr_cov: 0.0001
+    acc_cov: 1.1197412605492375e-02 
+    gyr_cov: 1.0270904839480961e-02 
+    b_acc_cov: 1.1751767903346351e-04
+    b_gyr_cov: 9.1355383994881894e-05
     fov_degree:    180
     det_range:     100.0
     extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic,
@@ -38,4 +42,9 @@ pcd_save:
 
 cov:
     #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力、虚拟零偏
-    init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001, 0.00001] 
+    # init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001, 0.00001] 初始
+    # init_P: [1, 1, 0.00001, 0.00001, 100, 0.0001, 0.001, 0.001, 0.00001] 上一次
+    init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.001, 0.00001] 
+
+others:
+    is_extended: false
