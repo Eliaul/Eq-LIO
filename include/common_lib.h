@@ -4,7 +4,7 @@
 #include <Eigen/Eigen>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <sfast_lio/Pose6D.h>
+#include <eq_lio/Pose6D.h>
 #include <sensor_msgs/Imu.h>
 #include <nav_msgs/Odometry.h>
 #include <tf/transform_broadcaster.h>
@@ -22,7 +22,7 @@ using namespace Eigen;
 #define SKEW_SYM_MATRX(v)        0.0,-v[2],v[1],v[2],0.0,-v[0],-v[1],v[0],0.0
 #define DEBUG_FILE_DIR(name)     (string(string(ROOT_DIR) + "Log/"+ name))
 
-typedef sfast_lio::Pose6D Pose6D;
+typedef eq_lio::Pose6D Pose6D;
 typedef pcl::PointXYZINormal PointType;
 typedef pcl::PointCloud<PointType> PointCloudXYZI;
 typedef vector<PointType, Eigen::aligned_allocator<PointType>>  PointVector;

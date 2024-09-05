@@ -37,6 +37,7 @@ namespace esekfom
 	class esekf
 	{
 	public:
+		bool is_grav_S2 = true;
 		typedef Matrix<double, _Dim, _Dim> cov;				// 24X24的协方差矩阵
 		typedef Matrix<double, _Dim, 1> vectorized_state; // 24X1的向量
 
@@ -63,8 +64,9 @@ namespace esekfom
 			P_ = input_cov;
 		}
 
-		//广义加法  公式(4)
-		state_ikfom boxplus(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_)
+		//前向传播 
+		//Forward propagation
+		state_ikfom propagate(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_)
 		{
 			state_ikfom x_r;
 			x_r.pos = x.pos + f_.template block<3, 1>(0, 0);
@@ -76,8 +78,8 @@ namespace esekfom
 			x_r.vel = x.vel + f_.template block<3, 1>(12, 0);
 			x_r.bg = x.bg + f_.template block<3, 1>(15, 0);
 			x_r.ba = x.ba + f_.template block<3, 1>(18, 0);
-			x_r.grav = x.grav + f_.template block<3, 1>(21, 0);
-
+			x_r.grav = x.grav;
+			
 			if (_Dim == 27)
 			{
 				x_r.bv = x.bv + f_.template block<3, 1>(24, 0);
@@ -85,7 +87,9 @@ namespace esekfom
 			return x_r;
 		}
 
-		state_ikfom compensate(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_)
+		//误差反馈
+		//Error compensate
+		state_ikfom compensate(state_ikfom x, Eigen::Matrix<double, _Dim, 1> f_, bool extrinsic_est)
 		{
 			state_ikfom x_r;
 			Sophus::SO3 rot_error = Sophus::SO3::exp(f_.template block<3, 1>(3, 0));
@@ -93,38 +97,44 @@ namespace esekfom
 			x_r.pos = f_.template block<3, 1>(0, 0) + rot_error * x.pos;
 			x_r.vel = f_.template block<3, 1>(12, 0) + rot_error * x.vel;
 
-			// Sophus::SO3 offset_R_error = Sophus::SO3::exp(f_.block<3, 1>(6, 0));
-			// x_r.offset_R_L_I = x.rot.inverse() * offset_R_error * x.rot * x.offset_R_L_I;
-			x_r.offset_R_L_I = x.offset_R_L_I;
-			//x_r.offset_R_L_I = x.offset_R_L_I * Sophus::SO3::exp(f_.block<3, 1>(6, 0));
-
-			// x_r.offset_T_L_I = x_r.offset_R_L_I * x.offset_R_L_I.inverse() * x.offset_T_L_I 
-			// + x.rot.inverse() * f_.block<3, 1>(9, 0) 
-			// - x.rot.inverse().matrix() * (Matrix3d::Identity() - offset_R_error.matrix()) * x.pos;
-			x_r.offset_T_L_I = x.offset_T_L_I;
-			//x_r.offset_T_L_I = x.offset_T_L_I + f_.block<3, 1>(9, 0);
+			Sophus::SO3 offset_R_error = Sophus::SO3::exp(f_.template block<3, 1>(6, 0));
+			if (extrinsic_est)
+			{
+				x_r.offset_R_L_I = x.rot.inverse() * offset_R_error * x.rot * x.offset_R_L_I;
+				x_r.offset_T_L_I = x_r.offset_R_L_I * x.offset_R_L_I.inverse() * x.offset_T_L_I 
+				+ x.rot.inverse() * f_.template block<3, 1>(9, 0) 
+				- x.rot.inverse().matrix() * (Matrix3d::Identity() - offset_R_error.matrix()) * x.pos;
+			} 
+			else 
+			{
+				x_r.offset_R_L_I = x.offset_R_L_I;
+				x_r.offset_T_L_I = x.offset_T_L_I;
+			}
 
 			x_r.bg = x.bg + x.rot.matrix().transpose() * f_.template block<3, 1>(15, 0);
 			x_r.ba = x.ba + x.rot.matrix().transpose() * f_.template block<3, 1>(18, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.vel) * f_.template block<3, 1>(15, 0);
-			if (_Dim == 27)
-				x_r.bv = x.bv + x.rot.matrix().transpose() * f_.template block<3, 1>(24, 0) - x.rot.matrix().transpose() * Sophus::SO3::hat(x.pos) * f_.template block<3, 1>(15, 0);
-			x_r.grav = x.grav + f_.template block<3, 1>(21, 0);
 
+			if (_Dim == 24)
+				x_r.grav = x.grav + f_.template block<3, 1>(21, 0);
+			if (_Dim == 23)
+			{
+				x_r.grav = Sophus::SO3::exp(S2_Bx(x.grav) * f_.template block<2, 1>(21, 0)) * x.grav;
+			}
 			return x_r;
 		}
 
-		//前向传播  公式(4-8)
-		void predict(double &dt, Eigen::Matrix<double, 12, 12> &Q, const input_ikfom &i_in)
+		//预测
+		void predict(double &dt, Eigen::Matrix<double, 12, 12> &Q, const input_ikfom &i_in, bool extrinsic_est)
 		{
-			Eigen::Matrix<double, _Dim, 1> f_ = get_f<_Dim>(x_, i_in);	  //公式(3)的f
-			Eigen::Matrix<double, _Dim, _Dim> f_x_ = df_dx<_Dim>(x_, i_in); //公式(7)的df/dx
-			Eigen::Matrix<double, _Dim, 12> f_w_ = df_dw<_Dim>(x_, i_in); //公式(7)的df/dw
+			Eigen::Matrix<double, _Dim, 1> f_ = get_f<_Dim>(x_, i_in);	  //获取 IMU 测量值
+			Eigen::Matrix<double, _Dim, _Dim> f_x_ = df_dx<_Dim>(x_, i_in, extrinsic_est); //系数矩阵 F
+			Eigen::Matrix<double, _Dim, 12> f_w_ = df_dw<_Dim>(x_, i_in); //噪声矩阵
 
-			x_ = boxplus(x_, f_ * dt); //前向传播 公式(4)
+			x_ = propagate(x_, f_ * dt);  //前向传播
 
-			f_x_ = Matrix<double, _Dim, _Dim>::Identity() + f_x_ * dt; //之前Fx矩阵里的项没加单位阵，没乘dt   这里补上
+			f_x_ = Matrix<double, _Dim, _Dim>::Identity() + f_x_ * dt; //状态转移矩阵
 
-			P_ = (f_x_)*P_ * (f_x_).transpose() + (dt * f_w_) * Q * (dt * f_w_).transpose(); //传播协方差矩阵，即公式(8)
+			P_ = (f_x_)*P_ * (f_x_).transpose() + (dt * f_w_) * Q * (dt * f_w_).transpose(); //传播协方差阵
 		}
 
 		//计算每个特征点的残差及H矩阵
@@ -232,8 +242,6 @@ namespace esekfom
 				//V3D A(point_I_crossmat * C);
 				if (extrinsic_est)
 				{
-					//V3D B(point_crossmat * x_.offset_R_L_I.matrix().transpose() * C);
-					//ekfom_data.h_x.block<1, 12>(i, 0) << norm_p.x, norm_p.y, norm_p.z, VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(B), VEC_FROM_ARRAY(C);
 					ekfom_data.h_x.block<1, 12>(i, 0) << norm_p.x, norm_p.y, norm_p.z, VEC_FROM_ARRAY(A), VEC_FROM_ARRAY(A), norm_p.x, norm_p.y, norm_p.z;
 				}
 				else
@@ -246,8 +254,8 @@ namespace esekfom
 			}
 		}
 
-		//广义减法
-		vectorized_state boxminus(state_ikfom x1, state_ikfom x2)
+		//计算误差
+		vectorized_state boxminus(state_ikfom x1, state_ikfom x2, bool extrinsic_est)
 		{
 			Matrix<double, _Dim, 1> x_r = Matrix<double, _Dim, 1>::Zero();
 
@@ -258,10 +266,13 @@ namespace esekfom
 			x_r.template block<3, 1>(3, 0) = Sophus::SO3(rot_err).log();
 
 			Matrix3d tmp = x2.rot.matrix() * x1.offset_R_L_I.matrix() * x2.offset_R_L_I.matrix().transpose() * x2.rot.matrix().transpose();
-			// x_r.block<3, 1>(6, 0) = Sophus::SO3(tmp).log();
+			if (extrinsic_est)
+			{
+				x_r.template block<3, 1>(6, 0) = Sophus::SO3(tmp).log();
+				x_r.template block<3, 1>(9, 0) = (Matrix3d::Identity() - tmp) * x2.pos + x2.rot * x1.offset_T_L_I - tmp * x2.rot.matrix() * x2.offset_T_L_I;
+			}
 
-			// x_r.block<3, 1>(9, 0) = (Matrix3d::Identity() - tmp) * x2.pos + x2.rot * x1.offset_T_L_I - tmp * x2.rot.matrix() * x2.offset_T_L_I;
-
+ 
 			x_r.template block<3, 1>(6, 0) = Sophus::SO3(x2.offset_R_L_I.matrix().transpose() * x1.offset_R_L_I.matrix()).log();
 
 			x_r.template block<3, 1>(9, 0) = x1.offset_T_L_I - x2.offset_T_L_I;
@@ -272,15 +283,49 @@ namespace esekfom
 
 			x_r.template block<3, 1>(18, 0) = x2.rot * (x1.ba - x2.ba) + Sophus::SO3::hat(x2.vel) * x_r.template block<3, 1>(15, 0);
 
-			x_r.template block<3, 1>(21, 0) = x1.grav - x2.grav;
-
-			if (_Dim == 27)
-				x_r.template block<3, 1>(24, 0) = x2.rot * (x1.bv - x2.bv) + Sophus::SO3::hat(x2.pos) * x_r.template block<3, 1>(15, 0);
+			if (_Dim == 24)
+				x_r.template block<3, 1>(21, 0) = x1.grav - x2.grav;
+			
+			if (_Dim == 23)
+				x_r.template block<2, 1>(21, 0) = boxminus_grav_S2(x1.grav, x2.grav);
 
 			return x_r;
 		}
 
-		// ESKF
+		//计算 S^2 上的重力误差
+		Matrix<double, 2, 1> boxminus_grav_S2(Matrix<double, 3, 1>& grav1, Matrix<double, 3, 1>& grav2)
+		{
+			double v_sin = (Sophus::SO3::hat(grav1)*grav2).norm();
+			double v_cos = grav1.transpose() * grav2;
+			double theta = std::atan2(v_sin, v_cos);
+			Matrix<double, 2, 1> res;
+			// MTK::tolerance: 1.e-7
+			if(v_sin < 1.e-7)
+			{
+				// 两个向量相互平行且夹角不为0
+				if(std::fabs(theta) > 1e-11) 
+				{
+					res[0] = 3.1415926;
+					res[1] = 0;
+					return res;
+				}
+				else
+				{ // 两个向量相互平行且夹角为0
+					res[0] = 0;
+					res[1] = 0;
+					return res;
+				}
+			}
+			else
+			{
+				//Vector3d grav2_norm = grav2 / grav2.norm();
+				Matrix<double, 3, 2> Bg = S2_Bx(grav2);
+				res = theta / v_sin * Bg.transpose() * Sophus::SO3::hat(grav2) * grav1;
+				return res;
+			}
+		}
+
+		//量测更新
 		void update_iterated_dyn_share_modified(double R, PointCloudXYZI::Ptr &feats_down_body,
 												KD_TREE<PointType> &ikdtree, vector<PointVector> &Nearest_Points, int maximum_iter, bool extrinsic_est)
 		{
@@ -307,7 +352,7 @@ namespace esekfom
 				}
 
 				vectorized_state dx;
-				dx_new = boxminus(x_, x_propagated); //公式(18)中的 x^k - x^
+				dx_new = boxminus(x_, x_propagated, extrinsic_est); //公式(18)中的 x^k - x^
 
 				//由于H矩阵是稀疏的，只有前12列有非零元素，后12列是零 因此这里采用分块矩阵的形式计算 减少计算量
 				auto H = dyn_share.h_x;												// m X 12 的矩阵
@@ -322,7 +367,7 @@ namespace esekfom
 				KH.template block<_Dim, 12>(0, 0) = K * H;
 				Matrix<double, _Dim, 1> dx_ = K * dyn_share.h + (KH - Matrix<double, _Dim, _Dim>::Identity()) * dx_new; //公式(18)
 				// std::cout << "dx_: " << dx_.transpose() << std::endl;
-				x_ = compensate(x_, dx_); //公式(18)
+				x_ = compensate(x_, dx_, extrinsic_est); //公式(18)
 
 				dyn_share.converge = true;
 				for (int j = 0; j < _Dim; j++)

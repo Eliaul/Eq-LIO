@@ -1,6 +1,6 @@
 common:
-    lid_topic:  "/velodyne_points"
-    imu_topic:  "/handsfree/imu"
+    lid_topic:  "/vlp_32c/lidar"
+    imu_topic:  "/mti/imu"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                   # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
@@ -24,10 +24,10 @@ mapping:
     fov_degree:    180
     det_range:     100.0
     extrinsic_est_en:  false      # true: enable the online estimation of IMU-LiDAR extrinsic,
-    extrinsic_T: [0.27255, -0.00053,0.17954]
-    extrinsic_R: [ 1,0, 0,
-                    0,1, 0,
-                    0,0, 1 ]
+    extrinsic_T: [ -0.002899692865260396, -0.0485172488, -0.2175663]
+    extrinsic_R: [ 0.9992758,  0.0379470, -0.0028105, 
+                   0.0379537, -0.9992767,  0.0023626, 
+                   -0.0027188, -0.0024675, -0.9999933 ]
 
 publish:
     path_en:  false
@@ -36,15 +36,14 @@ publish:
     scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
 
 pcd_save:
-    pcd_save_en: false
-    interval: -1                 # how many LiDAR frames saved in each pcd file; 
+    pcd_save_en: true
+    interval: 100                # how many LiDAR frames saved in each pcd file; 
                                  # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
 
 cov:
-    #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力
-    # init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001] 初始
-    # init_P: [1, 1, 0.00001, 0.00001, 100, 0.0001, 0.001, 0.001] 上一次
-    init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001] 
+    #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力、虚拟零偏
+    # init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001, 0.00001] 初始
+    init_P: [1, 0.01, 0.00001, 0.00001, 1, 0.0001, 0.01, 0.00001, 0.00001] 
 
 others:
     grav_S2: true

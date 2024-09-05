@@ -46,7 +46,7 @@ class ImuProcess
   void set_param(const V3D &transl, const M3D &rot, const V3D &gyr, const V3D &acc, const V3D &gyr_bias, const V3D &acc_bias);
   Eigen::Matrix<double, 12, 12> Q;    //噪声协方差矩阵  对应论文式(8)中的Q
   template<int _Dim>
-  void Process(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI::Ptr &pcl_un_, Matrix<double, _Dim, _Dim>& init_P);
+  void Process(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI::Ptr &pcl_un_, Matrix<double, _Dim, _Dim>& init_P, bool extrinsic_est);
 
   V3D cov_acc;             //加速度协方差
   V3D cov_gyr;             //角速度协方差
@@ -60,7 +60,7 @@ class ImuProcess
   template<int _Dim>
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, int &N, Matrix<double, _Dim, _Dim>& init_P);
   template<int _Dim>
-  void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI &pcl_in_out);
+  void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI &pcl_in_out, bool extrinsic_est);
 
   PointCloudXYZI::Ptr cur_pcl_un_;        //当前帧点云未去畸变
   sensor_msgs::ImuConstPtr last_imu_;     // 上一帧imu
@@ -167,13 +167,6 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_sta
   init_state.offset_R_L_I = Sophus::SO3(Lidar_R_wrt_IMU);
   kf_state.change_x(init_state);      //将初始化后的状态传入esekfom.hpp中的x_
 
-  // Matrix<double, 27, 27> init_P = MatrixXd::Identity(27,27);      //在esekfom.hpp获得P_的协方差矩阵
-  // init_P(6,6) = init_P(7,7) = init_P(8,8) = 0.00001;
-  // init_P(9,9) = init_P(10,10) = init_P(11,11) = 0.00001;
-  // init_P(15,15) = init_P(16,16) = init_P(17,17) = 0.0001;
-  // init_P(18,18) = init_P(19,19) = init_P(20,20) = 0.001;
-  // init_P(21,21) = init_P(22,22) = init_P(23,23) = 0.00001; 
-  // init_P(24,24) = init_P(25,25) = init_P(26,26) = bv_cov; 
   kf_state.change_P(init_P);
   last_imu_ = meas.imu.back();
 
@@ -182,7 +175,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_sta
 
 //反向传播
 template<int _Dim>
-void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI &pcl_out)
+void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI &pcl_out, bool extrinsic_est)
 {
   /***将上一帧最后尾部的imu添加到当前帧头部的imu ***/
   auto v_imu = meas.imu;         //取出当前帧的IMU队列
@@ -242,7 +235,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf
     Q.block<3, 3>(6, 6).diagonal() = cov_bias_gyr;
     Q.block<3, 3>(9, 9).diagonal() = cov_bias_acc;
 
-    kf_state.predict(dt, Q, in);    // IMU前向传播，每次传播的时间间隔为dt
+    kf_state.predict(dt, Q, in, extrinsic_est);    // IMU前向传播，每次传播的时间间隔为dt
 
     imu_state = kf_state.get_x();   //更新IMU状态为积分后的状态
     //更新上一帧角速度 = 后一帧角速度-bias  
@@ -262,7 +255,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf
 
   // 把最后一帧IMU测量也补上
   dt = abs(pcl_end_time - imu_end_time);
-  kf_state.predict(dt, Q, in);
+  kf_state.predict(dt, Q, in, extrinsic_est);
   imu_state = kf_state.get_x();   
   last_imu_ = meas.imu.back();              //保存最后一个IMU测量，以便于下一帧使用
   last_lidar_end_time_ = pcl_end_time;      //保存这一帧最后一个雷达测量的结束时间，以便于下一帧使用
@@ -309,7 +302,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf
 
 double T1,T2;
 template<int _Dim>
-void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI::Ptr &cur_pcl_un_, Matrix<double, _Dim, _Dim>& init_P)
+void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_state, PointCloudXYZI::Ptr &cur_pcl_un_, Matrix<double, _Dim, _Dim>& init_P, bool extrinsic_est)
 {
   // T1 = omp_get_wtime();
 
@@ -340,7 +333,7 @@ void ImuProcess::Process(const MeasureGroup &meas, esekfom::esekf<_Dim> &kf_stat
     return;
   }
 
-  UndistortPcl<_Dim>(meas, kf_state, *cur_pcl_un_); 
+  UndistortPcl<_Dim>(meas, kf_state, *cur_pcl_un_, extrinsic_est); 
 
   // T2 = omp_get_wtime();
   // cout<<"[ IMU Process ]: Time: "<<T2 - T1<<endl;

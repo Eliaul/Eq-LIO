@@ -30,15 +30,16 @@ publish:
     scan_bodyframe_pub_en: false  # true: output the point cloud scans in IMU-body-frame
 
 pcd_save:
-    pcd_save_en: false
+    pcd_save_en: true
     interval: 100                 # how many LiDAR frames saved in each pcd file; 
                                  # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
 
 cov:
-    #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力、虚拟零偏
-    # init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001, 0.00001] 
-    init_P: [1, 1, 0.00001, 0.00001, 0.01, 0.0001, 0.001, 0.001, 0.00001] 
+    lidar_point_cov: 0.001
+    #初始协方差阵，顺序：位置、姿态、外参矩阵、杆臂、速度、陀螺仪零偏、加速度计零偏、重力
+    init_P: [1, 1, 0.00001, 0.00001, 1, 0.0001, 0.001, 0.00001] 
+    #init_P: [1.0e-8, 0.01, 0.00001, 0.00001, 0.01, 0.0001, 0.001, 0.00001] 
 
 
 others:
-    is_extended: false
+    grav_S2: true

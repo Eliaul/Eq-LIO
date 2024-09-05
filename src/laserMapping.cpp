@@ -26,9 +26,10 @@
 #include "IMU_Processing.hpp"
 
 #define INIT_TIME (0.1)
-#define LASER_POINT_COV (0.001)
+//#define LASER_POINT_COV (0.01)
 #define PUBFRAME_PERIOD (20)
 
+double lidar_point_cov = 0.01;
 /*** Time Log Variables ***/
 int add_point_size = 0, kdtree_delete_counter = 0;
 bool pcd_save_en = false, time_sync_en = false, extrinsic_est_en = true, path_en = true;
@@ -80,7 +81,7 @@ M3D Lidar_R_wrt_IMU(Eye3d);
 MeasureGroup Measures;
 
 esekfom::esekf<24> kf;
-esekfom::esekf<27> kf_ex;
+esekfom::esekf<23> kf_S2;
 
 state_ikfom state_point;
 Eigen::Vector3d pos_lid; //估计的W系下的位置
@@ -494,7 +495,7 @@ void set_posestamp(T &out)
     out.pose.orientation.w = q_.coeffs()[3];
 }
 
-void publish_odometry(const ros::Publisher &pubOdomAftMapped, bool is_extend)
+void publish_odometry(const ros::Publisher &pubOdomAftMapped, bool is_grav_S2)
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
@@ -502,9 +503,9 @@ void publish_odometry(const ros::Publisher &pubOdomAftMapped, bool is_extend)
     set_posestamp(odomAftMapped.pose);
     pubOdomAftMapped.publish(odomAftMapped);
 
-    if (is_extend)
+    if (is_grav_S2)
     {
-        auto P = kf_ex.get_P();
+        auto P = kf_S2.get_P();
         for (int i = 0; i < 6; i++)
         {
             int k = i < 3 ? i + 3 : i - 3;
@@ -561,8 +562,51 @@ void publish_path(const ros::Publisher pubPath)
     }
 }
 
+template<int _Dim>
+void output_state(esekfom::esekf<_Dim> ekf, ofstream& out_f)
+{
+    state_point = ekf.get_x();
+    pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+    auto rot = (state_point.rot.log().transpose() * 180.0 / PI_M).eval();
+    Matrix<double, 1, 3> pos = state_point.pos.transpose();
+    auto offset_rot = (state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M).eval();
+    auto offset = state_point.offset_T_L_I.transpose().eval();
+    auto vel = state_point.vel.transpose().eval();
+    auto bg = state_point.bg.transpose().eval();
+    auto ba = state_point.ba.transpose().eval();
+    auto grav = state_point.grav.transpose().eval();
+
+    out_f << fixed << setprecision(3) << setw(15) << Measures.lidar_beg_time
+        << fixed << setprecision(3) << setw(11) << Measures.lidar_beg_time - first_lidar_time
+        << fixed << setprecision(6) << setw(14) << rot[0]
+        << fixed << setprecision(6) << setw(14) << rot[1]
+        << fixed << setprecision(6) << setw(14) << rot[2]
+        << fixed << setprecision(6) << setw(14) << vel[0]
+        << fixed << setprecision(6) << setw(14) << vel[1]
+        << fixed << setprecision(6) << setw(14) << vel[2]
+        << fixed << setprecision(6) << setw(16) << pos[0]
+        << fixed << setprecision(6) << setw(16) << pos[1]
+        << fixed << setprecision(6) << setw(16) << pos[2]
+        << fixed << setprecision(6) << setw(14) << offset_rot[0]
+        << fixed << setprecision(6) << setw(14) << offset_rot[1]
+        << fixed << setprecision(6) << setw(14) << offset_rot[2]
+        << fixed << setprecision(6) << setw(11) << offset[0]
+        << fixed << setprecision(6) << setw(11) << offset[1]
+        << fixed << setprecision(6) << setw(11) << offset[2]
+        << fixed << setprecision(6) << setw(14) << bg[0]
+        << fixed << setprecision(6) << setw(14) << bg[1]
+        << fixed << setprecision(6) << setw(14) << bg[2]
+        << fixed << setprecision(6) << setw(14) << ba[0]
+        << fixed << setprecision(6) << setw(14) << ba[1]
+        << fixed << setprecision(6) << setw(14) << ba[2]
+        << fixed << setprecision(6) << setw(16) << grav[0]
+        << fixed << setprecision(6) << setw(16) << grav[1]
+        << fixed << setprecision(6) << setw(16) << grav[2]
+        << endl;
+}
+
 vector<double> init_P;
-bool is_extended;
+bool is_grav_S2;
 
 int main(int argc, char **argv)
 {
@@ -599,8 +643,9 @@ int main(int argc, char **argv)
     nh.param<bool>("mapping/extrinsic_est_en", extrinsic_est_en, true);
     nh.param<bool>("pcd_save/pcd_save_en", pcd_save_en, false); // 是否将点云地图保存到PCD文件
     nh.param<int>("pcd_save/interval", pcd_save_interval, -1);
-    nh.param<vector<double>>("cov/init_P", init_P, vector<double>(9));
-    nh.param<bool>("others/is_extended", is_extended, false);
+    nh.param<vector<double>>("cov/init_P", init_P, vector<double>(8));
+    nh.param<bool>("others/grav_S2", is_grav_S2, true);
+    nh.param<double>("cov/lidar_point_cov", lidar_point_cov, 0.001);
     nh.param<vector<double>>("mapping/extrinsic_T", extrinT, vector<double>()); // 雷达相对于IMU的外参T（即雷达在IMU坐标系中的坐标）
     nh.param<vector<double>>("mapping/extrinsic_R", extrinR, vector<double>()); // 雷达相对于IMU的外参R
 
@@ -631,22 +676,48 @@ int main(int argc, char **argv)
     signal(SIGINT, SigHandle); //当程序检测到signal信号（例如ctrl+c） 时  执行 SigHandle 函数
     ros::Rate rate(5000);
 
-    ofstream out_f, out_p, out_imu;
-    out_f.open(string(ROOT_DIR) + "state_point.txt", std::ios::out);
-    out_p.open(string(ROOT_DIR) + "cov.txt", std::ios::out);
-    out_imu.open(string(ROOT_DIR) + "imu.txt", std::ios::out);
+    ofstream out_f;
+    out_f.open(string(ROOT_DIR) + "states.txt", std::ios::out);
+    out_f << setw(15) << "LiDAR time (s)"
+        << setw(11) << "Time (s)"
+        << setw(15) << "Roll (°)"
+        << setw(15) << "Pitch (°)"
+        << setw(15) << "Yaw (°)"
+        << setw(14) << "Vel-X (m/s)"
+        << setw(14) << "Vel-Y (m/s)"
+        << setw(14) << "Vel-Z (m/s)"
+        << setw(16) << "Pos-X (m)"
+        << setw(16) << "Pos-Y (m)"
+        << setw(16) << "Pos-Z (m)"
+        << setw(15) << "Ex-roll (°)"
+        << setw(15) << "Ex-pitch (°)"
+        << setw(15) << "Ex-yaw (°)"
+        << setw(11) << "Ex-X (m)"
+        << setw(11) << "Ex-Y (m)"
+        << setw(11) << "Ex-Z (m)"
+        << setw(14) << "Bg-X (rad/s)"
+        << setw(14) << "Bg-Y (rad/s)"
+        << setw(14) << "Bg-Z (rad/s)"
+        << setw(14) << "Ba-X (m/s^2)"
+        << setw(14) << "Ba-Y (m/s^2)"
+        << setw(14) << "Ba-Z (m/s^2)"
+        << setw(16) << "Grav-X (m/s^2)"
+        << setw(16) << "Grav-Y (m/s^2)"
+        << setw(16) << "Grav-Z (m/s^2)"
+        << endl;
+    // out_p.open(string(ROOT_DIR) + "cov.txt", std::ios::out);
+    // out_imu.open(string(ROOT_DIR) + "imu.txt", std::ios::out);
 
-    Matrix<double, 27, 27> init_P_mat_ex = Matrix<double, 27, 27>::Zero();
-    for (int i = 0; i < 27; i++)
-    {
-        init_P_mat_ex(i, i) = init_P[i/3];
-    }
     Matrix<double, 24, 24> init_P_mat = Matrix<double, 24, 24>::Zero();
     for (int i = 0; i < 24; i++)
     {
         init_P_mat(i, i) = init_P[i/3];
     }
-
+    Matrix<double, 23, 23> init_P_mat_S2 = Matrix<double, 23, 23>::Zero();
+    for (int i = 0; i < 23; i++)
+    {
+        init_P_mat_S2(i, i) = init_P[i/3];
+    }
 
     while (ros::ok())
     {
@@ -666,108 +737,20 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            if (is_extended)
+            if (is_grav_S2)
             {
-                p_imu1->Process(Measures, kf_ex, feats_undistort, init_P_mat_ex);
+                p_imu1->Process(Measures, kf_S2, feats_undistort, init_P_mat_S2, extrinsic_est_en);
             }
             else
             {
-                p_imu1->Process(Measures, kf, feats_undistort, init_P_mat);
+                p_imu1->Process(Measures, kf, feats_undistort, init_P_mat, extrinsic_est_en);
             }
-            
 
             //如果feats_undistort为空 ROS_WARN
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
                 ROS_WARN("No point, skip this scan!\n");
                 continue;
-            }
-
-            if (is_extended)
-            {
-                state_point = kf_ex.get_x();
-                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
-                auto rot = (state_point.rot.log().transpose() * 180.0 / PI_M).eval();
-                auto pos = state_point.pos.transpose().eval();
-                auto offset_rot = (state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M).eval();
-                auto offset = state_point.offset_T_L_I.transpose().eval();
-                auto vel = state_point.vel.transpose().eval();
-                auto bg = state_point.bg.transpose().eval();
-                auto ba = state_point.ba.transpose().eval();
-                auto bv = state_point.bv.transpose().eval();
-                auto grav = state_point.grav.transpose().eval();
-                out_f << fixed << setprecision(3) << setw(10) << Measures.lidar_beg_time - first_lidar_time 
-                      << fixed << setprecision(6) << setw(13) << rot[0]
-                      << fixed << setprecision(6) << setw(13) << rot[1]
-                      << fixed << setprecision(6) << setw(13) << rot[2]
-                      << fixed << setprecision(6) << setw(15) << pos[0]
-                      << fixed << setprecision(6) << setw(15) << pos[1]
-                      << fixed << setprecision(6) << setw(15) << pos[2]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[0]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[1]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[2]
-                      << fixed << setprecision(6) << setw(10) << offset[0]
-                      << fixed << setprecision(6) << setw(10) << offset[1]
-                      << fixed << setprecision(6) << setw(10) << offset[2]
-                      << fixed << setprecision(6) << setw(13) << vel[0]
-                      << fixed << setprecision(6) << setw(13) << vel[1]
-                      << fixed << setprecision(6) << setw(13) << vel[2]
-                      << fixed << setprecision(6) << setw(13) << bg[0]
-                      << fixed << setprecision(6) << setw(13) << bg[1]
-                      << fixed << setprecision(6) << setw(13) << bg[2]
-                      << fixed << setprecision(6) << setw(13) << ba[0]
-                      << fixed << setprecision(6) << setw(13) << ba[1]
-                      << fixed << setprecision(6) << setw(13) << ba[2]
-                      << fixed << setprecision(6) << setw(12) << grav[0]
-                      << fixed << setprecision(6) << setw(12) << grav[1]
-                      << fixed << setprecision(6) << setw(12) << grav[2]
-                      << fixed << setprecision(6) << setw(13) << bv[0]
-                      << fixed << setprecision(6) << setw(13) << bv[1]
-                      << fixed << setprecision(6) << setw(13) << bv[2]
-                      << endl;
-            }
-            else
-            {
-                state_point = kf.get_x();
-                pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
-                auto rot = (state_point.rot.log().transpose() * 180.0 / PI_M).eval();
-                auto pos = state_point.pos.transpose().eval();
-                auto offset_rot = (state_point.offset_R_L_I.log().transpose() * 180.0 / PI_M).eval();
-                auto offset = state_point.offset_T_L_I.transpose().eval();
-                auto vel = state_point.vel.transpose().eval();
-                auto bg = state_point.bg.transpose().eval();
-                auto ba = state_point.ba.transpose().eval();
-                auto bv = state_point.bv.transpose().eval();
-                auto grav = state_point.grav.transpose().eval();
-                out_f << fixed << setprecision(3) << setw(10) << Measures.lidar_beg_time
-                      << fixed << setprecision(6) << setw(13) << rot[0]
-                      << fixed << setprecision(6) << setw(13) << rot[1]
-                      << fixed << setprecision(6) << setw(13) << rot[2]
-                      << fixed << setprecision(6) << setw(15) << pos[0]
-                      << fixed << setprecision(6) << setw(15) << pos[1]
-                      << fixed << setprecision(6) << setw(15) << pos[2]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[0]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[1]
-                      << fixed << setprecision(6) << setw(13) << offset_rot[2]
-                      << fixed << setprecision(6) << setw(10) << offset[0]
-                      << fixed << setprecision(6) << setw(10) << offset[1]
-                      << fixed << setprecision(6) << setw(10) << offset[2]
-                      << fixed << setprecision(6) << setw(13) << vel[0]
-                      << fixed << setprecision(6) << setw(13) << vel[1]
-                      << fixed << setprecision(6) << setw(13) << vel[2]
-                      << fixed << setprecision(6) << setw(13) << bg[0]
-                      << fixed << setprecision(6) << setw(13) << bg[1]
-                      << fixed << setprecision(6) << setw(13) << bg[2]
-                      << fixed << setprecision(6) << setw(13) << ba[0]
-                      << fixed << setprecision(6) << setw(13) << ba[1]
-                      << fixed << setprecision(6) << setw(13) << ba[2]
-                      << fixed << setprecision(6) << setw(12) << grav[0]
-                      << fixed << setprecision(6) << setw(12) << grav[1]
-                      << fixed << setprecision(6) << setw(12) << grav[2]
-                      << fixed << setprecision(6) << setw(13) << bv[0]
-                      << fixed << setprecision(6) << setw(13) << bv[1]
-                      << fixed << setprecision(6) << setw(13) << bv[2]
-                      << endl;
             }
 
             flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
@@ -810,21 +793,23 @@ int main(int argc, char **argv)
 
             /*** iterated state estimation ***/
             Nearest_Points.resize(feats_down_size); //存储近邻点的vector
-            if(is_extended)
+            if (is_grav_S2)
             {
-                kf_ex.update_iterated_dyn_share_modified(LASER_POINT_COV, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en);
-                state_point = kf_ex.get_x();
+                kf_S2.update_iterated_dyn_share_modified(lidar_point_cov, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en); 
+                state_point = kf_S2.get_x();
                 pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+                output_state(kf_S2, out_f);
             }
             else
             {
-                kf.update_iterated_dyn_share_modified(LASER_POINT_COV, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en); 
+                kf.update_iterated_dyn_share_modified(lidar_point_cov, feats_down_body, ikdtree, Nearest_Points, NUM_MAX_ITERATIONS, extrinsic_est_en); 
                 state_point = kf.get_x();
                 pos_lid = state_point.pos + state_point.rot.matrix() * state_point.offset_T_L_I;
+                output_state(kf, out_f);
             }
             
             /******* Publish odometry *******/
-            publish_odometry(pubOdomAftMapped, is_extended);
+            publish_odometry(pubOdomAftMapped, is_grav_S2);
 
             /*** add the feature points to map kdtree ***/
             feats_down_world->resize(feats_down_size);
