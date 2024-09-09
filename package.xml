@@ -4,17 +4,14 @@
   <version>0.0.0</version>
 
   <description>
-    This is a modified version of LOAM which is original algorithm
-    is described in the following paper:
-    J. Zhang and S. Singh. LOAM: Lidar Odometry and Mapping in Real-time.
-      Robotics: Science and Systems Conference (RSS). Berkeley, CA, July 2014.
+    This is a modified version of S-FAST-LIO based on equivariant filter.
   </description>
 
-  <maintainer email="dev@livoxtech.com">claydergc</maintainer>
+  <maintainer email="tao_ab@whu.edu.cn">Anbo Tao</maintainer>
 
   <license>BSD</license>
 
-  <author email="zhangji@cmu.edu">Ji Zhang</author>
+  <author email="tao_ab@whu.edu.cn">Anbo Tao</author>
   
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>geometry_msgs</build_depend>
