@@ -7,8 +7,6 @@
 Eq-LIO is a tightly coupled LIO framework based on the equivariant filter
 and our code is implemented on [S-FAST_LIO](https://github.com/zlwang7/S-FAST_LIO).
 
-
-
 ## 1. Prerequisites
 ### 1.1 **Ubuntu** and **ROS**
 Ubuntu >= 16.04.
@@ -50,8 +48,8 @@ source ~/catkin_ws/devel/setup.bash
 
 
 <div align="left">
-<img src="pic/hku_mainbuilding.png" width = 45% height = 10% />
-<img src="pic/hku_mainbuilding.gif" width = 45% height = 10% />
+<img src="pic/hku_mainbuilding.png" width = 42% height = 10% />
+<img src="pic/hku_mainbuilding.gif" width = 42% height = 10% />
 
 
 You can use the Avia Rosbags provided by [FAST-LIO](https://github.com/hku-mars/FAST_LIO.git).
@@ -74,5 +72,19 @@ Thanks for the authors of [FAST-LIO](https://github.com/hku-mars/FAST_LIO) and
 [1] van Goor, Pieter, Tarek Hamel, and Robert Mahony. "Equivariant filter (eqf)." IEEE Transactions on Automatic Control (2022).
 
 [2] Fornasier, Alessandro, et al. "Equivariant filter design for inertial navigation systems with input measurement biases." 2022 International Conference on Robotics and Automation (ICRA). IEEE, 2022.
+
+
+## 6. BibTeX
+
+If this work is helpful for your research, please consider citing:
+
+```
+@article{tao2024eqlio,
+  title={Equivariant Filter for Tightly Coupled LiDAR-Inertial Odometry},
+  author={Anbo Tao, Yarong Luo, Chunxi Xia, Chi Guo and Xingxing Li},
+  journal={arXiv preprint arXiv:2409.06948},
+  year={2024}
+}
+```
 
 
