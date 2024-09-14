@@ -1,2 +1,4 @@
 PCD/
 /states.txt
+avia_*.yaml
+velodyne_*.yaml
